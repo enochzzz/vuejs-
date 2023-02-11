@@ -501,12 +501,167 @@ setTimeout(() => {
 
 
 /**
- * 6. 计算属性与lazy
+ * 7. 计算属性与lazy
  * lazy: 懒执行，将初始执行的副作用函数导出，在需要执行的时机或者想要执行的位置手动执行
  * 计算属性：基于lazy和schedule,结合对象的value访问器属性构建计算属性computed
  * 1）：获取对应回调函数的return值 通过lazy，在方位computed的value值时，调用effectFn并返回值
  * 2）：对不变值的缓存。不做处理时每次访问value都要调用effectFn，这并没有缓存。使用变量dirty记录是否改变值，并结合schedule（执行完重置）使用。将第一次的值缓存起来，访问时判断是否dirty，再看是重新执行，还是返回缓存
  * 3) ：effect中嵌套computed的值。理论上computed依赖的obj.foo的值改变，则compunted的value值改变，嵌套的effectFn要重新执行。如果不做处理达不到这个要求。（目前的obj.foo和compunted中的effectFn关联起来了，所以obj.foo改变，响应的effectFn执行。但是computed的value和嵌套的effectFn没有关联。所以这里需要在访问value的时候，手动追踪（不用担心各处访问，有activeEffect守卫，只有在effect中才会执行）。在schedule中触发依赖。
+ */
+// let activeEffect
+// const activeEffectStack = []
+
+// export function effect(fn, options = {}) {
+//   function effectFn() {
+//     cleanup(effectFn)
+//     activeEffect = effectFn
+//     activeEffectStack.push(activeEffect)
+//     const result = fn()
+//     activeEffectStack.length--
+//     activeEffect = activeEffectStack.at(-1)
+//     return result
+//   }
+//   effectFn.deps = []
+//   effectFn.options = options
+//   if (options?.lazy) {
+//     return effectFn
+//   }
+//   effectFn()
+// }
+// function cleanup(effectFn) {
+//   effectFn.deps.forEach(i => {
+//     i.delete(effectFn)
+//   })
+//   effectFn.deps.length = 0
+// }
+// export function reactive(data) {
+//   const { track, trigger } = handleDep()
+//   return new Proxy(data, {
+//     get(target, key) {
+//       track(target, key)
+//       return target[key]
+//     },
+//     set(target, key, newValue) {
+//       target[key] = newValue
+//       trigger(target, key)
+//       return true
+//     }
+//   })
+// }
+
+// function handleDep() {
+//   const depsWeakMap = new WeakMap()
+
+//   function track(target, key) {
+//     if (!activeEffect) {
+//       return
+//     }
+//     let targetMap = depsWeakMap.get(target)
+//     if (!targetMap) {
+//       depsWeakMap.set(target, (targetMap = new Map))
+//     }
+//     let keySet = targetMap.get(key)
+//     if (!keySet) {
+//       targetMap.set(key, (keySet = new Set))
+//     }
+//     keySet.add(activeEffect)
+//     activeEffect.deps.push(keySet)
+//   }
+//   function trigger(target, key) {
+//     const targetMap = depsWeakMap.get(target)
+//     if (targetMap) {
+//       const keySet = targetMap.get(key)
+
+//       const runStack = new Set()
+//       keySet.forEach(i => {
+//         if (i !== activeEffect) {
+//           runStack.add(i)
+//         }
+//       })
+//       runStack.forEach(i => {
+//         if (i?.options?.schedule) {
+//           i.options.schedule(i)
+//         } else {
+//           i()
+//         }
+//       })
+//     }
+//   }
+//   return {
+//     track,
+//     trigger
+//   }
+// }
+
+// // test1
+// // 要求手动执行
+// // const data = { foo: 1 }
+// // const obj = reactive(data)
+// // const effectFn = effect(() => console.log(obj.foo), {
+// //   lazy: true
+// // })
+// // effectFn()
+// // obj.foo++
+// // console.log('结束了')
+
+// function computed(fn) {
+//   let value
+//   let dirty = true
+//   const { track, trigger } = handleDep()
+//   const effectFn = effect(fn, {
+//     lazy: true,
+//     schedule() {
+//       dirty = true
+
+//       trigger(obj, 'value')
+//     }
+//   })
+
+//   const obj = {
+//     get value() {
+//       if (dirty) {
+//         dirty = false
+//         value = effectFn()
+//       }
+//       track(obj, 'value')
+//       return value
+//     }
+//   }
+//   return obj
+// }
+
+// // test2
+// // 1)computed 获取到值
+// const data = { foo: 1 }
+// const obj = reactive(data)
+// const obj2 = computed(() => {
+//   console.log('--effectFn--')
+//   return obj.foo + 'computed!'
+// })
+// console.log(obj2.value, '--obj3---')
+// // 2)缓存值
+// console.log(obj2.value, '--obj3---')
+// console.log(obj2.value, '--obj3---')
+// obj.foo = 2
+// console.log(obj2.value, '--obj3---')
+// console.log(obj2.value, '--obj3---')
+// // 3)嵌套computed
+// effect(() => {
+//   // 在该副作用函数中读取 sumRes.value
+//   console.log(obj2.value, '--嵌套effectFn执行---')
+// })
+
+// // 修改 obj.foo 的值
+// obj.foo++
+
+/**
+ * 8. watch 的实现 9. 立即执行的watch 和 回调执行时机
+ * 1. 监听传入的值，并在触发响应后执行回调函数
+ * 2. 传入的可能是响应式数据也可能是返回响应式数据的函数，需要处理传入的参数
+ * 3. 用effect对传入的响应式数据进行依赖的管理，触发回调可以放到调度schedule中执行
+ * 4. newValue 和 oldValue
+ * 5. 立即执行即 初始化时执行一次cb
+ * 6. 回调执行时机这个暂时不管他
  */
 let activeEffect
 const activeEffectStack = []
@@ -593,17 +748,6 @@ function handleDep() {
   }
 }
 
-// test1
-// 要求手动执行
-// const data = { foo: 1 }
-// const obj = reactive(data)
-// const effectFn = effect(() => console.log(obj.foo), {
-//   lazy: true
-// })
-// effectFn()
-// obj.foo++
-// console.log('结束了')
-
 function computed(fn) {
   let value
   let dirty = true
@@ -630,26 +774,63 @@ function computed(fn) {
   return obj
 }
 
+function watch(data, cb, options = {}) {
+  let getter
+  if (typeof data === 'function') {
+    getter = data
+  } else {
+    getter = () => traverse(data)
+  }
+  let newValue,oldValue
+
+  const job = () => {
+    newValue = effectFn()
+    cb(newValue, oldValue)
+    oldValue = newValue 
+  }
+  const effectFn = effect(() =>
+    getter()
+    , {
+      lazy: true,
+      schedule: job
+    })
+
+    if(options?.immediate) {
+      job()
+    }else {
+      oldValue = effectFn()
+    }
+}
+
+function traverse(data, seen = new Set) {
+  if (typeof data !== 'object' || data === null || seen.has(data)) {
+    // 原始值或者null直接返回不管
+    // seen是为了防止循环引用
+    return
+  }
+  seen.add(data)
+  for (const key in data) {
+    traverse(data[key])
+  }
+  return data
+}
+
 // test2
 // 1)computed 获取到值
 const data = { foo: 1 }
 const obj = reactive(data)
-const obj2 = computed(() => {
-  console.log('--effectFn--')
-  return obj.foo + 'computed!'
+watch(obj, (n,o) => {
+  console.log(1111,n,o)
 })
-console.log(obj2.value, '--obj3---')
-// 2)缓存值
-console.log(obj2.value, '--obj3---')
-console.log(obj2.value, '--obj3---')
-obj.foo = 2
-console.log(obj2.value, '--obj3---')
-console.log(obj2.value, '--obj3---')
-// 3)嵌套computed
-effect(() => {
-  // 在该副作用函数中读取 sumRes.value
-  console.log(obj2.value, '--嵌套effectFn执行---')
+watch(() => { obj.foo }, (n,o) => {
+  console.log(222,n,o)
 })
-
-// 修改 obj.foo 的值
+watch(() => obj.foo, (n,o) => {
+  console.log(3333,n,o)
+})
+watch(() => obj.foo, (n,o) => {
+  console.log(3333,n,o)
+},{
+  immediate: true
+})
 obj.foo++
